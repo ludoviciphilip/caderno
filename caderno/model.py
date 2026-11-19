@@ -60,6 +60,74 @@ class Stroke:
         return False
 
 
+def _reversals(values, min_move):
+    """Quantas vezes a sequência muda de sentido, contando só idas de pelo menos min_move."""
+    count, direction = 0, 0
+    lo = hi = values[0]
+    for v in values[1:]:
+        if direction == 0:
+            lo, hi = min(lo, v), max(hi, v)
+            if hi - v >= min_move:
+                direction = -1
+                lo = v
+            elif v - lo >= min_move:
+                direction = 1
+                hi = v
+        elif direction == 1:
+            if v > hi:
+                hi = v
+            elif hi - v >= min_move:
+                count, direction, lo = count + 1, -1, v
+        else:
+            if v < lo:
+                lo = v
+            elif v - lo >= min_move:
+                count, direction, hi = count + 1, 1, v
+    return count
+
+
+def is_scribble(s: Stroke) -> bool:
+    """Um rabisco de "riscar fora": vai e volta várias vezes (na horizontal ou na vertical),
+    com um caminho bem mais longo que a área que cobre."""
+    if s.kind != "pen" or len(s.points) < 12:
+        return False
+    x0, y0, x1, y1 = s.bbox()
+    w, h = x1 - x0 - 2 * s.width, y1 - y0 - 2 * s.width
+    if max(w, h) < 12:
+        return False
+    xs = [p[0] for p in s.points]
+    ys = [p[1] for p in s.points]
+    length = sum(math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(s.points, s.points[1:]))
+    rx = _reversals(xs, max(8.0, 0.3 * w))
+    ry = _reversals(ys, max(8.0, 0.5 * h))
+    # vai e volta na horizontal por cima da palavra
+    if rx >= 4 and length >= 3.2 * max(w, h):
+        return True
+    # zigue-zague vertical (WWWW) atravessando a palavra: mais idas e voltas, de altura cheia
+    return ry >= 6 and length >= 2.4 * max(w, h) and h >= 0.15 * w
+
+
+def scribble_targets(page: "Page", scribble: Stroke) -> list:
+    """Traços que o rabisco cobre: a maior parte dos pontos dentro da área do rabisco
+    e cruzados por ele. Lista de (índice, traço)."""
+    x0, y0, x1, y1 = scribble.bbox()
+    pad = 4
+    probe = scribble.points[::2]
+    out = []
+    for i, st in enumerate(page.strokes):
+        if st is scribble or not st.points:
+            continue
+        sx0, sy0, sx1, sy1 = st.bbox()
+        if sx1 < x0 or sx0 > x1 or sy1 < y0 or sy0 > y1:
+            continue
+        inside = sum(1 for x, y, _ in st.points if x0 - pad <= x <= x1 + pad and y0 - pad <= y <= y1 + pad)
+        if inside / len(st.points) < 0.6:
+            continue
+        if any(st.hit(x, y, scribble.width) for x, y, _ in probe):
+            out.append((i, st))
+    return out
+
+
 @dataclass
 class ImageItem:
     file: str                 # nome do arquivo em imagens/

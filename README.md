@@ -18,6 +18,8 @@ Brazilian Portuguese.
   - a highlighter that stays underneath the ink
   - a stroke eraser
   - a ruler that draws a straight line in the last pen's color and snaps to 15° steps
+- **Scratch out:** scribble back and forth over a word and it's erased, the way Journal does it. The
+  scribble has to mostly cover the word, so ordinary writing next to it is never touched, and Ctrl+Z brings the word back.
 - **Images:** paste with Ctrl+V, drop a file on a page, or use `+` → image from file. Move and resize them with the
   **mouse** (drag the bottom-right corner to resize), and Delete removes them. The pen always writes, including over images.
 - **Pen and tablet buttons:**

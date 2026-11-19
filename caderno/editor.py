@@ -14,7 +14,8 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Graphene, Gtk  # noqa: E402
 
 from . import render  # noqa: E402
-from .model import PAGE_H, PAGE_W, PAPERS, ImageItem, Journal, Page, Stroke  # noqa: E402
+from .model import (PAGE_H, PAGE_W, PAPERS, ImageItem, Journal, Page, Stroke,  # noqa: E402
+                    is_scribble, scribble_targets)
 from .toolbar import Toolbar  # noqa: E402
 
 MOUSE_PRESSURE = 0.55
@@ -36,7 +37,6 @@ class PageView(Gtk.DrawingArea):
         self.cache = None
         self.cache_key = None
         self.add_css_class("caderno-page")
-        self.set_focusable(True)
         self.set_cursor(Gdk.Cursor.new_from_name("crosshair"))
         self.set_draw_func(self._draw)
         self.update_size()
@@ -165,7 +165,6 @@ class PageView(Gtk.DrawingArea):
             gesture.set_state(Gtk.EventSequenceState.DENIED)   # botões da caneta: o Editor cuida
             return
         eraser_end = is_pen and tool_dev.get_tool_type() == Gdk.DeviceToolType.ERASER
-        self.grab_focus()
 
         # mouse em cima de uma imagem: seleciona / move / redimensiona
         if not is_pen and button == 1:
@@ -339,6 +338,11 @@ class PageView(Gtk.DrawingArea):
             return
         s._bbox = None
         page = self.page
+        if mode == "draw" and is_scribble(s):
+            targets = scribble_targets(page, s)
+            if targets:   # riscou por cima de algo já escrito: apaga isso e some com o rabisco
+                self._scratch_out(targets)
+                return
         page.strokes.append(s)
         self.add_stroke_to_cache(s)
 
@@ -352,6 +356,24 @@ class PageView(Gtk.DrawingArea):
             self.add_stroke_to_cache(s)
         ed.push(undo, redo, done=True)
         ed.ensure_blank_last_page(page)
+
+    def _scratch_out(self, targets):
+        page = self.page
+        for _i, st in targets:
+            page.strokes.remove(st)
+        self.invalidate()
+
+        def undo():
+            for idx, st in sorted(targets, key=lambda t: t[0]):
+                page.strokes.insert(idx, st)
+            self.invalidate()
+
+        def redo():
+            for _idx, st in targets:
+                if st in page.strokes:
+                    page.strokes.remove(st)
+            self.invalidate()
+        self.editor.push(undo, redo, done=True)
 
     def _erase_at(self, x, y):
         live = self.editor.live
@@ -412,6 +434,11 @@ class Editor(Adw.NavigationPage):
         self.pages_box.set_margin_bottom(120)
         self.scroller = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
         self.scroller.set_child(self.pages_box)
+        # Sem isso, o primeiro toque de caneta numa folha dava foco a ela e o viewport
+        # rolava para "mostrar" o widget focado no meio do traço (saía uma reta).
+        viewport = self.scroller.get_child()
+        if isinstance(viewport, Gtk.Viewport):
+            viewport.set_scroll_to_focus(False)
         self.scroller.set_kinetic_scrolling(False)
         zoom_scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL)
         zoom_scroll.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
