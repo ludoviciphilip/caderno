@@ -12,6 +12,7 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from . import store  # noqa: E402
 from .render import hex_rgb  # noqa: E402
+from .i18n import _  # noqa: E402
 
 CARD_W, COVER_H = 150, 118
 
@@ -145,8 +146,8 @@ class Card(Gtk.Box):
             b.add_css_class("flat")
             b.connect("clicked", lambda *_: (pop.popdown(), cb()))
             box.append(b)
-        item("Renomear…", lambda: self.home.rename(self.entry), "document-edit-symbolic")
-        item("Mover para…", lambda: self.home.move(self.entry), "folder-symbolic")
+        item(_("Renomear…"), lambda: self.home.rename(self.entry), "document-edit-symbolic")
+        item(_("Mover para…"), lambda: self.home.move(self.entry), "folder-symbolic")
         colors = Gtk.Box(spacing=4, halign=Gtk.Align.CENTER)
         palette = store.FOLDER_COLORS if self.entry.kind == "folder" else store.JOURNAL_COLORS
         for c in palette:
@@ -162,7 +163,7 @@ class Card(Gtk.Box):
             colors.append(b)
         box.append(colors)
         box.append(Gtk.Separator())
-        item("Mover para a lixeira", lambda: self.home.delete(self.entry), "user-trash-symbolic")
+        item(_("Mover para a lixeira"), lambda: self.home.delete(self.entry), "user-trash-symbolic")
         pop.set_child(box)
         mb.set_popover(pop)
 
@@ -171,15 +172,18 @@ class HomePage(Adw.NavigationPage):
     def __init__(self, app_window, root: Path, folder: Path | None = None):
         self.root = root
         self.folder = folder or root
-        title = "Cadernos" if self.folder == root else self.folder.name
+        title = _("Cadernos") if self.folder == root else self.folder.name
         super().__init__(title=title)
         self.win = app_window
 
         view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        self.search = Gtk.SearchEntry(placeholder_text="Pesquisar", width_chars=30)
+        self.search = Gtk.SearchEntry(placeholder_text=_("Pesquisar"), width_chars=30)
         self.search.connect("search-changed", lambda *_: self.reload())
         header.set_title_widget(self.search)
+        settings = Gtk.MenuButton(icon_name="open-menu-symbolic")
+        settings.set_create_popup_func(self._settings_menu)
+        header.pack_end(settings)
         view.add_top_bar(header)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
@@ -191,13 +195,13 @@ class HomePage(Adw.NavigationPage):
         new_j = Gtk.Button()
         nj = Gtk.Box(spacing=8)
         nj.append(Gtk.Image(icon_name="list-add-symbolic"))
-        nj.append(Gtk.Label(label="Novo caderno"))
+        nj.append(Gtk.Label(label=_("Novo caderno")))
         new_j.set_child(nj)
         new_j.add_css_class("flat")
-        new_j.connect("clicked", lambda *_: self.ask_name("Novo caderno", "Criar", "", self._create_journal))
-        new_f = Gtk.Button(icon_name="folder-new-symbolic", tooltip_text="Nova pasta")
+        new_j.connect("clicked", lambda *_a: self.ask_name(_("Novo caderno"), _("Criar"), "", self._create_journal))
+        new_f = Gtk.Button(icon_name="folder-new-symbolic", tooltip_text=_("Nova pasta"))
         new_f.add_css_class("flat")
-        new_f.connect("clicked", lambda *_: self.ask_name("Nova pasta", "Criar", "", self._create_folder))
+        new_f.connect("clicked", lambda *_a: self.ask_name(_("Nova pasta"), _("Criar"), "", self._create_folder))
         actions.append(new_j)
         actions.append(new_f)
         content.append(actions)
@@ -205,7 +209,7 @@ class HomePage(Adw.NavigationPage):
         self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
                                 column_spacing=20, row_spacing=20, max_children_per_line=12,
                                 valign=Gtk.Align.START)
-        self.empty = Gtk.Label(label="Nada aqui ainda — crie um caderno ou uma pasta.",
+        self.empty = Gtk.Label(label=_("Nada aqui ainda — crie um caderno ou uma pasta."),
                                css_classes=["dim-label"], margin_top=40)
         content.append(self.flow)
         content.append(self.empty)
@@ -216,6 +220,40 @@ class HomePage(Adw.NavigationPage):
         self.connect("showing", lambda *_: self.reload())
         self.reload()
 
+    def _settings_menu(self, mb):
+        """Idioma da interface e formas inteligentes."""
+        from . import i18n
+        pop = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        for m in ("top", "bottom", "start", "end"):
+            getattr(box, f"set_margin_{m}")(8)
+        box.append(Gtk.Label(label=_("Idioma"), xalign=0, css_classes=["heading"]))
+        group = None
+        for code, name in i18n.LANGUAGES.items():
+            check = Gtk.CheckButton(label=name or _("Automático (sistema)"), group=group)
+            group = group or check
+            check.set_active(i18n.chosen() == code)
+            check.connect("toggled", lambda c, code=code: c.get_active() and self._set_language(pop, code))
+            box.append(check)
+        box.append(Gtk.Separator(margin_top=4, margin_bottom=4))
+        row = Gtk.Box(spacing=12)
+        row.append(Gtk.Label(label=_("Formas inteligentes"), xalign=0, hexpand=True))
+        sw = Gtk.Switch(active=i18n.read_config().get("shapes", True), valign=Gtk.Align.CENTER)
+        sw.connect("notify::active", lambda w, _p: i18n.write_config(shapes=w.get_active()))
+        row.append(sw)
+        box.append(row)
+        pop.set_child(box)
+        mb.set_popover(pop)
+
+    def _set_language(self, pop, code):
+        from . import i18n
+        if code == i18n.chosen():
+            return
+        i18n.set_language(code)
+        pop.popdown()
+        # reconstrói a tela inicial no idioma novo
+        self.win.nav.replace([HomePage(self.win, self.root)])
+
     def reload(self):
         while (child := self.flow.get_first_child()) is not None:
             self.flow.remove(child)
@@ -224,8 +262,8 @@ class HomePage(Adw.NavigationPage):
         for e in entries:
             self.flow.append(Card(self, e))
         self.empty.set_visible(not entries)
-        self.empty.set_label("Nada encontrado." if text else
-                             "Nada aqui ainda — crie um caderno ou uma pasta.")
+        self.empty.set_label(_("Nada encontrado.") if text else
+                             _("Nada aqui ainda — crie um caderno ou uma pasta."))
 
     def open(self, entry: store.Entry):
         if entry.kind == "folder":
@@ -239,7 +277,7 @@ class HomePage(Adw.NavigationPage):
         dlg = Adw.AlertDialog(heading=heading)
         entry = Gtk.Entry(text=initial, activates_default=True)
         dlg.set_extra_child(entry)
-        dlg.add_response("cancel", "Cancelar")
+        dlg.add_response("cancel", _("Cancelar"))
         dlg.add_response("ok", verb)
         dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
         dlg.set_default_response("ok")
@@ -262,7 +300,7 @@ class HomePage(Adw.NavigationPage):
         self.reload()
 
     def rename(self, entry):
-        self.ask_name("Renomear", "Renomear", entry.name,
+        self.ask_name(_("Renomear"), _("Renomear"), entry.name,
                       lambda n: (store.rename(entry, n), self.reload()))
 
     def recolor(self, entry, color):
@@ -270,10 +308,10 @@ class HomePage(Adw.NavigationPage):
         self.reload()
 
     def delete(self, entry):
-        dlg = Adw.AlertDialog(heading=f"Mover “{entry.name}” para a lixeira?",
-                              body="Dá para recuperar pela lixeira do sistema.")
-        dlg.add_response("cancel", "Cancelar")
-        dlg.add_response("del", "Mover para a lixeira")
+        dlg = Adw.AlertDialog(heading=_("Mover “{name}” para a lixeira?", name=entry.name),
+                              body=_("Dá para recuperar pela lixeira do sistema."))
+        dlg.add_response("cancel", _("Cancelar"))
+        dlg.add_response("del", _("Mover para a lixeira"))
         dlg.set_response_appearance("del", Adw.ResponseAppearance.DESTRUCTIVE)
         dlg.set_close_response("cancel")
 
@@ -282,7 +320,7 @@ class HomePage(Adw.NavigationPage):
                 try:
                     Gio.File.new_for_path(str(entry.path)).trash(None)
                 except GLib.Error as e:
-                    self.win.toast(f"Não consegui mover para a lixeira: {e.message}")
+                    self.win.toast(_("Não consegui mover para a lixeira: {err}", err=e.message))
                 self.reload()
         dlg.connect("response", resp)
         dlg.present(self.win)
@@ -295,18 +333,18 @@ class HomePage(Adw.NavigationPage):
                          for part in p.relative_to(self.root).parts)
              and p != entry.path and entry.path not in p.parents),
             key=lambda p: str(p).casefold())
-        dlg = Adw.AlertDialog(heading=f"Mover “{entry.name}” para…")
+        dlg = Adw.AlertDialog(heading=_("Mover “{name}” para…", name=entry.name))
         lst = Gtk.ListBox(css_classes=["boxed-list"], selection_mode=Gtk.SelectionMode.SINGLE)
         for f in folders:
-            label = "Cadernos (início)" if f == self.root else str(f.relative_to(self.root))
+            label = _("Cadernos (início)") if f == self.root else str(f.relative_to(self.root))
             row = Gtk.ListBoxRow(child=Gtk.Label(label=label, xalign=0, margin_start=10,
                                                  margin_end=10, margin_top=8, margin_bottom=8))
             row.folder = f
             lst.append(row)
         sc = Gtk.ScrolledWindow(min_content_height=min(320, 44 * len(folders)), child=lst)
         dlg.set_extra_child(sc)
-        dlg.add_response("cancel", "Cancelar")
-        dlg.add_response("ok", "Mover")
+        dlg.add_response("cancel", _("Cancelar"))
+        dlg.add_response("ok", _("Mover"))
         dlg.set_response_appearance("ok", Adw.ResponseAppearance.SUGGESTED)
         dlg.set_close_response("cancel")
 

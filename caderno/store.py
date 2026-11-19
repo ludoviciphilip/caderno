@@ -92,7 +92,8 @@ def _unique(path: Path) -> Path:
 
 def _clean(name: str) -> str:
     name = name.strip().replace("/", "-")
-    return name or "Sem título"
+    from .i18n import _
+    return name or _("Sem título")
 
 
 def create_folder(parent: Path, name: str) -> Path:

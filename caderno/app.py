@@ -52,7 +52,7 @@ class Window(Adw.ApplicationWindow):
     def toast(self, text):
         self.toasts.add_toast(Adw.Toast(title=text, timeout=3))
 
-    def _closing(self, *_):
+    def _closing(self, *_args):
         page = self.nav.get_visible_page()
         if hasattr(page, "save_now"):
             page.save_now()

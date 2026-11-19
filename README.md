@@ -2,8 +2,8 @@
 
 A handwriting notebook for Linux pen tablets, in the spirit of **Microsoft Journal**:
 folders and notebooks on the home screen, and inside a notebook just paper, a pen and a
-small floating toolbar. GTK4 + libadwaita, written in Python with Cairo. The UI is in
-Brazilian Portuguese.
+small floating toolbar. GTK4 + libadwaita, written in Python with Cairo. The interface is in
+English, Portuguese and Spanish.
 
 ![Home](docs/home.png)
 ![Notebook](docs/editor.png)
@@ -18,6 +18,9 @@ Brazilian Portuguese.
   - a highlighter that stays underneath the ink
   - a stroke eraser
   - a ruler that draws a straight line in the last pen's color and snaps to 15° steps
+- **Smart shapes:** draw a line, circle, ellipse, rectangle or triangle and keep the pen still on the page for
+  a moment. The rough stroke turns into a clean shape: lines snap to 0°/45°/90°, near-round ellipses become circles,
+  near-square rectangles become squares. You can turn this off in the home screen menu.
 - **Scratch out:** scribble back and forth over a word and it's erased, the way Journal does it. The
   scribble has to mostly cover the word, so ordinary writing next to it is never touched, and Ctrl+Z brings the word back.
 - **Images:** paste with Ctrl+V, drop a file on a page, or use `+` → image from file. Move and resize them with the
@@ -32,6 +35,12 @@ Brazilian Portuguese.
   - Ctrl+wheel, Ctrl+= and Ctrl+- zoom, Ctrl+0 fits the page.
   - Keys 1–6 pick a tool.
 - **Export to PDF** (vector) from the notebook menu. Everything saves automatically.
+
+## Language
+
+The home screen menu (⋮) switches between English, Português and Español, or **Automatic**, which follows the
+system locale. The choice is saved in `~/.config/caderno/config.json`; `CADERNO_LANG=en|pt|es` overrides it for a
+single run.
 
 ## Storage
 

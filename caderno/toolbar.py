@@ -12,6 +12,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 
 from .render import hex_rgb  # noqa: E402
+from .i18n import _  # noqa: E402
 
 CONFIG = Path(GLib.get_user_config_dir()) / "caderno" / "ferramentas.json"
 
@@ -180,7 +181,7 @@ class Toolbar(Gtk.Box):
         self.last_pen = 0
         self.on_change = on_change
         self.slot_buttons = []
-        for i, _ in enumerate(self.tools):
+        for i in range(len(self.tools)):
             btn = Gtk.Button()
             btn.add_css_class("flat")
             btn.add_css_class("tool-slot")
@@ -195,13 +196,13 @@ class Toolbar(Gtk.Box):
         sep.set_margin_start(6)
         sep.set_margin_end(6)
         self.append(sep)
-        self.insert_btn = Gtk.MenuButton(icon_name="list-add-symbolic", tooltip_text="Inserir")
+        self.insert_btn = Gtk.MenuButton(icon_name="list-add-symbolic", tooltip_text=_("Inserir"))
         self.insert_btn.add_css_class("flat")
         self.insert_btn.add_css_class("bar-btn")
         self.insert_btn.set_create_popup_func(on_insert_menu)
         self.append(self.insert_btn)
-        self.undo_btn = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text="Desfazer (Ctrl+Z)")
-        self.redo_btn = Gtk.Button(icon_name="edit-redo-symbolic", tooltip_text="Refazer (Ctrl+Shift+Z)")
+        self.undo_btn = Gtk.Button(icon_name="edit-undo-symbolic", tooltip_text=_("Desfazer (Ctrl+Z)"))
+        self.redo_btn = Gtk.Button(icon_name="edit-redo-symbolic", tooltip_text=_("Refazer (Ctrl+Shift+Z)"))
         for b, cb in ((self.undo_btn, on_undo), (self.redo_btn, on_redo)):
             b.add_css_class("flat")
             b.add_css_class("bar-btn")
@@ -212,7 +213,7 @@ class Toolbar(Gtk.Box):
     def _tooltip(self, i):
         t = self.tools[i]
         names = {"pen": "Caneta", "hl": "Marca-texto", "eraser": "Borracha", "ruler": "Régua (linha reta)"}
-        return f"{names[t.kind]} ({i + 1}) — clique de novo para mudar cor e espessura"
+        return _("{tool} ({n}) — clique de novo para mudar cor e espessura", tool=_(names[t.kind]), n=i + 1)
 
     @property
     def tool(self) -> Tool:
@@ -274,7 +275,7 @@ class Toolbar(Gtk.Box):
                 b.connect("clicked", lambda _b, c=c: (setattr(tool, "color", c), changed()))
                 grid.append(b)
             box.append(grid)
-            custom = Gtk.Button(label="Outra cor…")
+            custom = Gtk.Button(label=_("Outra cor…"))
             custom.add_css_class("flat")
 
             def pick(_b):
@@ -302,7 +303,7 @@ class Toolbar(Gtk.Box):
                 b.connect("clicked", lambda _b, wv=wv: (setattr(tool, "width", wv), changed()))
                 row.append(b)
             if tool.kind == "eraser":
-                box.append(Gtk.Label(label="Tamanho da borracha", css_classes=["dim-label"]))
+                box.append(Gtk.Label(label=_("Tamanho da borracha"), css_classes=["dim-label"]))
             box.append(row)
         pop.set_child(box)
         pop.connect("closed", lambda p: GLib.idle_add(p.unparent))

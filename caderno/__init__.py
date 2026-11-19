@@ -1,2 +1,2 @@
-"""Caderno — caderno digital para mesa digitalizadora (GTK4)."""
-__version__ = "0.1.0"
+"""Caderno — handwriting notebook for pen tablets (GTK4)."""
+__version__ = "0.2.0"

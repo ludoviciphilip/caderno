@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import time
 import uuid
 from pathlib import Path
 
@@ -17,6 +18,8 @@ from . import render  # noqa: E402
 from .model import (PAGE_H, PAGE_W, PAPERS, ImageItem, Journal, Page, Stroke,  # noqa: E402
                     is_scribble, scribble_targets)
 from .toolbar import Toolbar  # noqa: E402
+from . import shapes  # noqa: E402
+from .i18n import _, read_config  # noqa: E402
 
 MOUSE_PRESSURE = 0.55
 HANDLE = 14            # alça de redimensionar (unidades de página)
@@ -83,7 +86,7 @@ class PageView(Gtk.DrawingArea):
         if self.cache is None or s.kind == "hl":
             self.invalidate()
             return
-        w, h, _ = self.cache_key
+        w, h, _scale = self.cache_key
         cr = cairo.Context(self.cache)
         cr.scale(w / PAGE_W, h / PAGE_H)
         render.draw_stroke(cr, s)
@@ -194,7 +197,11 @@ class PageView(Gtk.DrawingArea):
             kind = "hl" if tool.kind == "hl" else "pen"
             s = Stroke(kind, tool.color, tool.width, [[px, py, p]])
             ed.live = {"view": self, "mode": "draw", "stroke": s, "smooth": [px, py, p],
-                       "origin": (x, y), "pen": is_pen, "last_widget": (x, y)}
+                       "origin": (x, y), "pen": is_pen, "last_widget": (x, y),
+                       "still": (px, py, time.monotonic()), "snapped": None}
+            if read_config().get("shapes", True):
+                live = ed.live
+                GLib.timeout_add(80, self._hold_tick, live)
         self.queue_draw()
 
     @staticmethod
@@ -280,6 +287,8 @@ class PageView(Gtk.DrawingArea):
             return
         # desenho livre, com suavização leve (média móvel exponencial)
         s = live["stroke"]
+        if live.get("snapped"):
+            return            # já virou forma: o resto do movimento até soltar é ignorado
         sm = live["smooth"]
         for wx, wy, p in self._samples(gesture, dx, dy):
             px, py = self._to_page(wx, wy)
@@ -291,7 +300,28 @@ class PageView(Gtk.DrawingArea):
             if math.hypot(sm[0] - last[0], sm[1] - last[1]) >= 0.5:
                 s.points.append([sm[0], sm[1], sm[2]])
                 s._bbox = None
+        sx_, sy_, _t = live["still"]
+        if math.hypot(sm[0] - sx_, sm[1] - sy_) > shapes.STILL_RADIUS:
+            live["still"] = (sm[0], sm[1], time.monotonic())
         self.queue_draw()
+
+    def _hold_tick(self, live):
+        """Caneta parada no fim do traço por um instante: troca o traço pela forma."""
+        if self.editor.live is not live or live.get("snapped"):
+            return False
+        if time.monotonic() - live["still"][2] < shapes.HOLD_SECONDS:
+            return True
+        s = live["stroke"]
+        found = shapes.recognize(s.points)
+        if not found:
+            return False         # não é forma: segue como traço normal
+        _kind, pts = found
+        pressure = sum(p[2] for p in s.points) / len(s.points)
+        s.points = [[x, y, pressure] for x, y in pts]
+        s._bbox = None
+        live["snapped"] = _kind
+        self.queue_draw()
+        return False
 
     def _end(self, gesture, dx, dy):
         ed = self.editor
@@ -328,7 +358,7 @@ class PageView(Gtk.DrawingArea):
             self.queue_draw()
             return
         s = live["stroke"]
-        if mode == "draw":
+        if mode == "draw" and not live.get("snapped"):
             ok, sx, sy = gesture.get_start_point()
             px, py = self._to_page(sx + dx, sy + dy)
             if math.hypot(px - s.points[-1][0], py - s.points[-1][1]) > 0.5:
@@ -338,7 +368,7 @@ class PageView(Gtk.DrawingArea):
             return
         s._bbox = None
         page = self.page
-        if mode == "draw" and is_scribble(s):
+        if mode == "draw" and not live.get("snapped") and is_scribble(s):
             targets = scribble_targets(page, s)
             if targets:   # riscou por cima de algo já escrito: apaga isso e some com o rabisco
                 self._scratch_out(targets)
@@ -417,11 +447,11 @@ class Editor(Adw.NavigationPage):
 
         toolbar_view = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic", tooltip_text="Caderno")
+        menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic", tooltip_text=_("Caderno"))
         menu_btn.set_create_popup_func(self._journal_menu)
         header.pack_end(menu_btn)
-        zoom_out = Gtk.Button(icon_name="zoom-out-symbolic", tooltip_text="Diminuir (Ctrl+-)")
-        zoom_in = Gtk.Button(icon_name="zoom-in-symbolic", tooltip_text="Aumentar (Ctrl+=)")
+        zoom_out = Gtk.Button(icon_name="zoom-out-symbolic", tooltip_text=_("Diminuir (Ctrl+-)"))
+        zoom_in = Gtk.Button(icon_name="zoom-in-symbolic", tooltip_text=_("Aumentar (Ctrl+=)"))
         zoom_out.connect("clicked", lambda *_: self.set_zoom(self.zoom / 1.15))
         zoom_in.connect("clicked", lambda *_: self.set_zoom(self.zoom * 1.15))
         header.pack_end(zoom_in)
@@ -455,7 +485,7 @@ class Editor(Adw.NavigationPage):
         self.add_page_btn = Gtk.Button(halign=Gtk.Align.CENTER)
         lab = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
         lab.append(Gtk.Image(icon_name="list-add-symbolic"))
-        lab.append(Gtk.Label(label="Nova folha"))
+        lab.append(Gtk.Label(label=_("Nova folha")))
         self.add_page_btn.set_child(lab)
         self.add_page_btn.add_css_class("add-page")
         self.add_page_btn.connect("clicked", lambda *_: self._add_page_at_end())
@@ -613,7 +643,7 @@ class Editor(Adw.NavigationPage):
         self._pad_group = group
         self.connect("map", self._attach_pad)
 
-    def _attach_pad(self, *_):
+    def _attach_pad(self, *_args):
         if getattr(self, "_pad_ctrl", None) is not None:
             return
         win = self.get_root()
@@ -621,8 +651,8 @@ class Editor(Adw.NavigationPage):
             return
         ctrl = Gtk.PadController.new(self._pad_group, None)
         entries = []
-        for idx, act, label in ((self.PAD_ZOOM_OUT, "zoom-out", "Diminuir zoom"),
-                                (self.PAD_ZOOM_IN, "zoom-in", "Aumentar zoom")):
+        for idx, act, label in ((self.PAD_ZOOM_OUT, "zoom-out", _("Diminuir zoom")),
+                                (self.PAD_ZOOM_IN, "zoom-in", _("Aumentar zoom"))):
             e = Gtk.PadActionEntry()
             e.type = Gtk.PadActionType.BUTTON
             e.index = idx
@@ -636,7 +666,7 @@ class Editor(Adw.NavigationPage):
         self._pad_ctrl = ctrl
         self.connect("unmap", self._detach_pad)
 
-    def _detach_pad(self, *_):
+    def _detach_pad(self, *_args):
         ctrl = getattr(self, "_pad_ctrl", None)
         if ctrl is not None and ctrl.get_widget() is not None:
             ctrl.get_widget().remove_controller(ctrl)
@@ -783,7 +813,7 @@ class Editor(Adw.NavigationPage):
                 pix = GdkPixbuf.Pixbuf.new_from_file(str(source))
                 pix = pix.apply_embedded_orientation() or pix
         except GLib.Error as e:
-            self._toast(f"Não consegui abrir a imagem: {e.message}")
+            self._toast(_("Não consegui abrir a imagem: {err}", err=e.message))
             return None
         w, h = pix.get_width(), pix.get_height()
         k = min(1.0, MAX_IMAGE_SIDE / max(w, h))
@@ -853,11 +883,11 @@ class Editor(Adw.NavigationPage):
                         self.insert_image(Path(f.get_path()))
             cb.read_value_async(Gdk.FileList, GLib.PRIORITY_DEFAULT, None, done_files)
         else:
-            self._toast("A área de transferência não tem imagem")
+            self._toast(_("A área de transferência não tem imagem"))
 
     def choose_image(self):
-        dlg = Gtk.FileDialog(title="Inserir imagem")
-        filt = Gtk.FileFilter(name="Imagens")
+        dlg = Gtk.FileDialog(title=_("Inserir imagem"))
+        filt = Gtk.FileFilter(name=_("Imagens"))
         filt.add_pixbuf_formats()
         store = Gio.ListStore.new(Gtk.FileFilter)
         store.append(filt)
@@ -899,22 +929,22 @@ class Editor(Adw.NavigationPage):
 
     def _insert_menu(self, mb):
         _box, item = self._popover_box(mb)
-        item("Imagem de um arquivo…", self.choose_image, "image-x-generic-symbolic")
-        item("Colar imagem (Ctrl+V)", self.paste, "edit-paste-symbolic")
-        item("Nova folha depois desta", lambda: self.insert_page(self.views.index(self.current_view()) + 1),
+        item(_("Imagem de um arquivo…"), self.choose_image, "image-x-generic-symbolic")
+        item(_("Colar imagem (Ctrl+V)"), self.paste, "edit-paste-symbolic")
+        item(_("Nova folha depois desta"), lambda: self.insert_page(self.views.index(self.current_view()) + 1),
              "document-new-symbolic")
 
     def _page_menu(self, mb, view):
         box, item = self._popover_box(mb)
         idx = lambda: self.views.index(view)
-        item("Nova folha antes", lambda: self.insert_page(idx()), "go-up-symbolic")
-        item("Nova folha depois", lambda: self.insert_page(idx() + 1), "go-down-symbolic")
+        item(_("Nova folha antes"), lambda: self.insert_page(idx()), "go-up-symbolic")
+        item(_("Nova folha depois"), lambda: self.insert_page(idx() + 1), "go-down-symbolic")
         box.append(Gtk.Separator())
         for paper in PAPERS:
             mark = "  ✓" if view.page.paper == paper else ""
-            item(PAPER_NAMES[paper] + mark, lambda p=paper: self._set_paper(view, p))
+            item(_(PAPER_NAMES[paper]) + mark, lambda p=paper: self._set_paper(view, p))
         box.append(Gtk.Separator())
-        item("Excluir folha", lambda: self.delete_page(view.page), "user-trash-symbolic")
+        item(_("Excluir folha"), lambda: self.delete_page(view.page), "user-trash-symbolic")
 
     def _set_paper(self, view, paper):
         old = view.page.paper
@@ -928,14 +958,14 @@ class Editor(Adw.NavigationPage):
 
     def _journal_menu(self, mb):
         _box, item = self._popover_box(mb)
-        item("Exportar como PDF…", self.export_pdf, "document-save-as-symbolic")
-        item("Abrir a pasta do caderno", lambda: Gtk.FileLauncher.new(
+        item(_("Exportar como PDF…"), self.export_pdf, "document-save-as-symbolic")
+        item(_("Abrir a pasta do caderno"), lambda: Gtk.FileLauncher.new(
             Gio.File.new_for_path(str(self.journal.path))).launch(self.get_root(), None, None),
             "folder-open-symbolic")
 
     def export_pdf(self):
         self.save_now()
-        dlg = Gtk.FileDialog(title="Exportar PDF", initial_name=f"{self.journal.name}.pdf")
+        dlg = Gtk.FileDialog(title=_("Exportar PDF"), initial_name=f"{self.journal.name}.pdf")
 
         def done(d, res):
             try:
@@ -944,9 +974,9 @@ class Editor(Adw.NavigationPage):
                 return
             try:
                 render.export_pdf(self.journal, Path(f.get_path()))
-                self._toast("PDF exportado")
+                self._toast(_("PDF exportado"))
             except Exception as e:  # noqa: BLE001
-                self._toast(f"Falha ao exportar: {e}")
+                self._toast(_("Falha ao exportar: {err}", err=e))
         dlg.save(self.get_root(), None, done)
 
     def _toast(self, text):
