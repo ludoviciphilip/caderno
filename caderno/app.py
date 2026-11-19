@@ -26,6 +26,7 @@ window, .caderno-bg { background: #202020; }
 .bar-btn { min-width: 40px; min-height: 40px; border-radius: 10px; }
 .swatch { padding: 2px; min-width: 0; min-height: 0; border-radius: 99px; }
 .page-frame { box-shadow: 0 2px 10px rgba(0,0,0,.5); border-radius: 3px; }
+.index-thumb { border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
 .page-number { color: rgba(0,0,0,.45); font-size: 11px; margin-top: 2px; }
 .page-menu { color: rgba(0,0,0,.55); min-width: 24px; min-height: 24px; padding: 0; }
 .add-page { border: 2px dashed rgba(255,255,255,.18); border-radius: 6px; background: transparent;

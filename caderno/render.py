@@ -151,6 +151,35 @@ def draw_image(cr, item, images: ImageCache):
     cr.restore()
 
 
+HEADING_COLOR = "#8a4fc7"
+
+
+def draw_heading(cr, hd):
+    """Marcador de título: uma etiqueta roxa com "#" no lugar onde o # foi desenhado."""
+    x, y, w, h = hd.marker_rect()
+    r = min(5.0, h / 2)
+    cr.save()
+    cr.new_sub_path()
+    cr.arc(x + w - r, y + r, r, -math.pi / 2, 0)
+    cr.arc(x + w - r, y + h - r, r, 0, math.pi / 2)
+    cr.arc(x + r, y + h - r, r, math.pi / 2, math.pi)
+    cr.arc(x + r, y + r, r, math.pi, 3 * math.pi / 2)
+    cr.close_path()
+    cr.set_source_rgb(*hex_rgb(HEADING_COLOR))
+    cr.fill()
+    # o "#" desenhado à mão, em branco
+    cr.set_source_rgb(1, 1, 1)
+    cr.set_line_width(1.8)
+    cr.set_line_cap(cairo.LINE_CAP_ROUND)
+    for k in (0.38, 0.64):
+        cr.move_to(x + w * k + 1.2, y + h * 0.22)
+        cr.line_to(x + w * k - 1.2, y + h * 0.78)
+        cr.move_to(x + w * 0.2, y + h * (k + 0.0))
+        cr.line_to(x + w * 0.82, y + h * (k + 0.0))
+    cr.stroke()
+    cr.restore()
+
+
 def render_page(cr, page: Page, images: ImageCache, paper=True):
     if paper:
         draw_paper(cr, page.paper)
@@ -162,6 +191,8 @@ def render_page(cr, page: Page, images: ImageCache, paper=True):
     for s in page.strokes:
         if s.kind != "hl":
             draw_stroke(cr, s)
+    for hd in page.headings:
+        draw_heading(cr, hd)
 
 
 def export_pdf(journal: Journal, out: Path):

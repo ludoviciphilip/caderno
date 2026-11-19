@@ -137,3 +137,59 @@ def recognize(points):
         corners = [(cx - side / 2, cy - side / 2), (cx + side / 2, cy - side / 2),
                    (cx + side / 2, cy + side / 2), (cx - side / 2, cy + side / 2)]
     return kind, _resample(corners + corners[:1], 3)
+
+
+# ── "#" para criar título ────────────────────────────────────────────────────
+
+def _straight(points):
+    """(ax, ay, bx, by) se o traço é quase reto, senão None."""
+    pts = [(p[0], p[1]) for p in points]
+    if len(pts) < 2:
+        return None
+    (ax, ay), (bx, by) = pts[0], pts[-1]
+    ln = math.hypot(bx - ax, by - ay)
+    if ln < 7:
+        return None
+    dev = max(_dist_to_segment(x, y, ax, ay, bx, by) for x, y in pts)
+    return (ax, ay, bx, by) if dev <= max(3.5, 0.22 * ln) else None
+
+
+def _segments_cross(a, b, inner=0.08):
+    """Os segmentos se cruzam no meio (não nas pontas, como os cantos de uma caixa)?"""
+    x1, y1, x2, y2 = a
+    x3, y3, x4, y4 = b
+    d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4)
+    if abs(d) < 1e-9:
+        return False
+    t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d
+    u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / d
+    return inner <= t <= 1 - inner and inner <= u <= 1 - inner
+
+
+def is_hash(strokes):
+    """Quatro traços curtos e retos formando um "#": dois deitados, dois em pé,
+    cada deitado cruzando os dois em pé. Devolve o bbox (x0, y0, x1, y1) ou None."""
+    if len(strokes) != 4:
+        return None
+    segs = []
+    for st in strokes:
+        seg = _straight(st.points)
+        if seg is None:
+            return None
+        segs.append(seg)
+    xs = [v for s in segs for v in (s[0], s[2])]
+    ys = [v for s in segs for v in (s[1], s[3])]
+    x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
+    if max(x1 - x0, y1 - y0) > 90 or max(x1 - x0, y1 - y0) < 10:
+        return None
+
+    def angle(s):
+        a = abs(math.degrees(math.atan2(s[3] - s[1], s[2] - s[0]))) % 180
+        return min(a, 180 - a)        # 0 = deitado, 90 = em pé
+    flat = [s for s in segs if angle(s) <= 35]
+    up = [s for s in segs if angle(s) >= 50]
+    if len(flat) != 2 or len(up) != 2:
+        return None
+    if all(_segments_cross(f, u) for f in flat for u in up):
+        return x0, y0, x1, y1
+    return None

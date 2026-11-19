@@ -12,14 +12,25 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 gi.require_version("GdkPixbuf", "2.0")
-from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, Graphene, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, GdkPixbuf, Gio, GLib, GObject, Graphene, Gtk  # noqa: E402
 
 from . import render  # noqa: E402
-from .model import (PAGE_H, PAGE_W, PAPERS, ImageItem, Journal, Page, Stroke,  # noqa: E402
+from .model import (PAGE_H, PAGE_W, PAPERS, Heading, ImageItem, Journal, Page, Stroke,  # noqa: E402
                     is_scribble, scribble_targets)
 from .toolbar import Toolbar  # noqa: E402
 from . import shapes  # noqa: E402
 from .i18n import _, read_config  # noqa: E402
+
+
+def pressure_curve(p: float) -> float:
+    """Pressão da caneta conforme a opção "Traço": completa, suave ou uniforme.
+    Com a caneta inclinada a mesa lê menos pressão; "suave" e "uniforme" deixam a letra igual."""
+    mode = read_config().get("pressure", "full")
+    if mode == "off":
+        return 0.62
+    if mode == "soft":
+        return 0.5 + 0.3 * max(0.0, min(1.0, p))
+    return p
 
 MOUSE_PRESSURE = 0.55
 HANDLE = 14            # alça de redimensionar (unidades de página)
@@ -195,6 +206,7 @@ class PageView(Gtk.DrawingArea):
             ed.live = {"view": self, "mode": "line", "a": (px, py), "b": (px, py), "stroke": s}
         else:
             kind = "hl" if tool.kind == "hl" else "pen"
+            p = pressure_curve(p) if is_pen else p
             s = Stroke(kind, tool.color, tool.width, [[px, py, p]])
             ed.live = {"view": self, "mode": "draw", "stroke": s, "smooth": [px, py, p],
                        "origin": (x, y), "pen": is_pen, "last_widget": (x, y),
@@ -292,6 +304,8 @@ class PageView(Gtk.DrawingArea):
         sm = live["smooth"]
         for wx, wy, p in self._samples(gesture, dx, dy):
             px, py = self._to_page(wx, wy)
+            if live["pen"]:
+                p = pressure_curve(p)
             a = 0.5
             sm[0] += (px - sm[0]) * a
             sm[1] += (py - sm[1]) * a
@@ -312,16 +326,52 @@ class PageView(Gtk.DrawingArea):
         if time.monotonic() - live["still"][2] < shapes.HOLD_SECONDS:
             return True
         s = live["stroke"]
+        if s.kind == "pen" and self._make_heading(live):
+            return False
         found = shapes.recognize(s.points)
         if not found:
             return False         # não é forma: segue como traço normal
         _kind, pts = found
         pressure = sum(p[2] for p in s.points) / len(s.points)
         s.points = [[x, y, pressure] for x, y in pts]
+        s.shape = _kind
         s._bbox = None
         live["snapped"] = _kind
         self.queue_draw()
         return False
+
+    def _make_heading(self, live):
+        """Os três últimos traços da folha + este formam um "#": viram um título."""
+        page = self.page
+        s = live["stroke"]
+        if len(page.strokes) < 3:
+            return False
+        prev = page.strokes[-3:]
+        box = shapes.is_hash(prev + [s])
+        if box is None:
+            return False
+        x0, y0, x1, y1 = box
+        cy = (y0 + y1) / 2
+        if page.paper == "pautado":
+            # a faixa da linha da pauta em que o # foi escrito (escreve-se em cima da linha)
+            k = max(1, math.ceil((cy - render.MARGIN_TOP) / render.LINE_GAP))
+            if cy < render.MARGIN_TOP:
+                k = 0
+            yb = render.MARGIN_TOP + k * render.LINE_GAP
+            band = (yb - render.LINE_GAP, yb)
+        else:
+            half = max(17.0, (y1 - y0) / 2 + 4)
+            band = (cy - half, cy + half)
+        hd = Heading(x0, band[0], band[1])
+        removed = [(page.strokes.index(st), st) for st in prev]
+        for _i, st in removed:
+            page.strokes.remove(st)
+        page.headings.append(hd)
+        s.points = []
+        live["snapped"] = "título"
+        live["heading"] = (hd, removed)
+        self.invalidate()
+        return True
 
     def _end(self, gesture, dx, dy):
         ed = self.editor
@@ -341,23 +391,47 @@ class PageView(Gtk.DrawingArea):
             return
         if mode == "erase":
             removed = live["removed"]
-            if removed:
+            gone = live.get("headings", [])
+            if removed or gone:
                 page = self.page
 
                 def undo():
                     for idx, st in sorted(removed, key=lambda t: t[0]):
                         page.strokes.insert(idx, st)
+                    page.headings.extend(gone)
                     self.invalidate()
 
                 def redo():
                     for _idx, st in removed:
                         if st in page.strokes:
                             page.strokes.remove(st)
+                    for hd in gone:
+                        if hd in page.headings:
+                            page.headings.remove(hd)
                     self.invalidate()
                 ed.push(undo, redo, done=True)
             self.queue_draw()
             return
         s = live["stroke"]
+        if live.get("heading"):
+            hd, removed = live["heading"]
+            page = self.page
+
+            def undo():
+                if hd in page.headings:
+                    page.headings.remove(hd)
+                for idx, st in sorted(removed, key=lambda t: t[0]):
+                    page.strokes.insert(idx, st)
+                self.invalidate()
+
+            def redo():
+                for _idx, st in removed:
+                    if st in page.strokes:
+                        page.strokes.remove(st)
+                page.headings.append(hd)
+                self.invalidate()
+            ed.push(undo, redo, done=True)
+            return
         if mode == "draw" and not live.get("snapped"):
             ok, sx, sy = gesture.get_start_point()
             px, py = self._to_page(sx + dx, sy + dy)
@@ -415,6 +489,12 @@ class PageView(Gtk.DrawingArea):
                 live["removed"].append((i, st))
                 del self.page.strokes[i]
                 hit = True
+        for hd in list(self.page.headings):
+            mx, my, mw, mh = hd.marker_rect()
+            if mx - r <= x <= mx + mw + r and my - r <= y <= my + mh + r:
+                self.page.headings.remove(hd)
+                live.setdefault("headings", []).append(hd)
+                hit = True
         if hit:
             self.invalidate()
             self.editor.mark_dirty()
@@ -456,6 +536,9 @@ class Editor(Adw.NavigationPage):
         zoom_in.connect("clicked", lambda *_: self.set_zoom(self.zoom * 1.15))
         header.pack_end(zoom_in)
         header.pack_end(zoom_out)
+        self.index_btn = Gtk.ToggleButton(icon_name="view-list-bullet-symbolic",
+                                          tooltip_text=_("Índice (títulos e formas)"))
+        header.pack_start(self.index_btn)
         toolbar_view.add_top_bar(header)
 
         self.pages_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
@@ -479,7 +562,13 @@ class Editor(Adw.NavigationPage):
         overlay = Gtk.Overlay()
         overlay.set_child(self.scroller)
         overlay.add_overlay(self.toolbar)
-        toolbar_view.set_content(overlay)
+        self.split = Adw.OverlaySplitView(show_sidebar=False, min_sidebar_width=220, max_sidebar_width=280)
+        self.split.set_sidebar(self._build_index())
+        self.split.set_content(overlay)
+        self.index_btn.bind_property("active", self.split, "show-sidebar",
+                                     GObject.BindingFlags.BIDIRECTIONAL)
+        self.split.connect("notify::show-sidebar", lambda *_a: self.refresh_index())
+        toolbar_view.set_content(self.split)
         self.set_child(toolbar_view)
 
         self.add_page_btn = Gtk.Button(halign=Gtk.Align.CENTER)
@@ -550,17 +639,19 @@ class Editor(Adw.NavigationPage):
         index = self.journal.pages.index(page)
         if len(self.journal.pages) == 1:
             # a única folha: em vez de sumir com ela, apaga o conteúdo
-            strokes, images = list(page.strokes), list(page.images)
+            strokes, images, heads = list(page.strokes), list(page.images), list(page.headings)
             view = self.views[0]
 
             def clear():
                 page.strokes.clear()
                 page.images.clear()
+                page.headings.clear()
                 view.invalidate()
 
             def restore():
                 page.strokes[:] = strokes
                 page.images[:] = images
+                page.headings[:] = heads
                 view.invalidate()
             clear()
             if record:
@@ -759,7 +850,102 @@ class Editor(Adw.NavigationPage):
     def _autosave(self):
         self.save_source = 0
         self.save_now()
+        self.refresh_index()
         return False
+
+    # ── índice: títulos e formas ──────────────────────────────────────────────
+    def _build_index(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        box.add_css_class("index-panel")
+        box.append(Gtk.Label(label=_("Índice"), xalign=0, css_classes=["title-4"],
+                             margin_start=14, margin_top=12, margin_bottom=6))
+        sc = Gtk.ScrolledWindow(vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        self.index_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE, css_classes=["navigation-sidebar"])
+        self.index_list.connect("row-activated", lambda _l, row: self._goto(*row.target))
+        sc.set_child(self.index_list)
+        box.append(sc)
+        return box
+
+    def index_entries(self):
+        """[(número da folha, view, tipo, rótulo, retângulo da miniatura)] na ordem da folha."""
+        out = []
+        for n, v in enumerate(self.views, 1):
+            page = v.page
+            items = []
+            for hd in page.headings:
+                strokes = hd.title_strokes(page)
+                x1 = max((st.bbox()[2] for st in strokes), default=hd.x + 160)
+                items.append((hd.y0, "title", _("Título"), (hd.x - 4, hd.y0, x1 + 6, hd.y1 + 4)))
+            for st in page.strokes:
+                if st.shape:
+                    x0, y0, x1, y1 = st.bbox()
+                    name = _(st.shape)
+                    items.append((y0, "shape", name[:1].upper() + name[1:], (x0 - 8, y0 - 8, x1 + 8, y1 + 8)))
+            items.sort(key=lambda t: t[0])
+            out += [(n, v, kind, label, rect) for _y, kind, label, rect in items]
+        return out
+
+    def refresh_index(self):
+        if not self.split.get_show_sidebar():
+            return
+        lst = self.index_list
+        while (row := lst.get_first_child()) is not None:
+            lst.remove(row)
+        entries = self.index_entries()
+        if not entries:
+            lab = Gtk.Label(label=_("Nenhum título ou forma ainda.\n\nPara criar um título, desenhe um # no "
+                                    "começo da linha e segure a caneta parada."),
+                            wrap=True, xalign=0, margin_start=14, margin_end=14, margin_top=8,
+                            css_classes=["dim-label"])
+            row = Gtk.ListBoxRow(activatable=False, child=lab)
+            lst.append(row)
+            return
+        last_page = None
+        for n, v, kind, label, rect in entries:
+            if n != last_page:
+                hdr = Gtk.ListBoxRow(activatable=False, selectable=False)
+                hdr.set_child(Gtk.Label(label=_("Folha {n}", n=n), xalign=0, css_classes=["caption-heading", "dim-label"],
+                                        margin_top=8, margin_start=6))
+                lst.append(hdr)
+                last_page = n
+            row = Gtk.ListBoxRow()
+            row.target = (v, rect)
+            b = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, margin_top=4, margin_bottom=4)
+            x0, y0, x1, y1 = rect
+            tw = 200
+            th = int(max(24, min(110, tw * (y1 - y0) / max(1, x1 - x0))))
+            thumb = Gtk.DrawingArea(content_width=tw, content_height=th, css_classes=["index-thumb"])
+            thumb.set_draw_func(self._draw_thumb, (v.page, rect))
+            b.append(thumb)
+            icon = "format-text-bold-symbolic" if kind == "title" else "draw-polygon-symbolic"
+            line = Gtk.Box(spacing=6)
+            line.append(Gtk.Image(icon_name=icon, pixel_size=12, css_classes=["dim-label"]))
+            line.append(Gtk.Label(label=label, xalign=0, css_classes=["caption"]))
+            b.append(line)
+            row.set_child(b)
+            lst.append(row)
+
+    def _draw_thumb(self, _area, cr, w, h, data):
+        page, (x0, y0, x1, y1) = data
+        cr.set_source_rgb(1, 1, 1)
+        cr.paint()
+        k = min(w / max(1, x1 - x0), h / max(1, y1 - y0))
+        cr.translate((w - (x1 - x0) * k) / 2, (h - (y1 - y0) * k) / 2)
+        cr.scale(k, k)
+        cr.translate(-x0, -y0)
+        cr.rectangle(x0, y0, x1 - x0, y1 - y0)
+        cr.clip()
+        render.render_page(cr, page, self.images, paper=False)
+
+    def _goto(self, view, rect):
+        ok, b = view.frame.compute_bounds(self.pages_box)
+        if not ok:
+            return
+        vadj = self.scroller.get_vadjustment()
+        y = b.get_y() + rect[1] * self.zoom - vadj.get_page_size() * 0.25
+        vadj.set_value(max(0, min(y, vadj.get_upper() - vadj.get_page_size())))
+        if self.split.get_collapsed():
+            self.split.set_show_sidebar(False)
 
     def save_now(self):
         if self.dirty:
@@ -957,11 +1143,14 @@ class Editor(Adw.NavigationPage):
         self.push(lambda: setp(old), lambda: setp(paper), done=True)
 
     def _journal_menu(self, mb):
-        _box, item = self._popover_box(mb)
+        from . import settings
+        box, item = self._popover_box(mb)
         item(_("Exportar como PDF…"), self.export_pdf, "document-save-as-symbolic")
         item(_("Abrir a pasta do caderno"), lambda: Gtk.FileLauncher.new(
             Gio.File.new_for_path(str(self.journal.path))).launch(self.get_root(), None, None),
             "folder-open-symbolic")
+        box.append(Gtk.Separator(margin_top=4, margin_bottom=2))
+        box.append(settings.build())
 
     def export_pdf(self):
         self.save_now()

@@ -221,28 +221,10 @@ class HomePage(Adw.NavigationPage):
         self.reload()
 
     def _settings_menu(self, mb):
-        """Idioma da interface e formas inteligentes."""
-        from . import i18n
+        """Idioma da interface, traço da caneta e formas inteligentes."""
+        from . import settings
         pop = Gtk.Popover()
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        for m in ("top", "bottom", "start", "end"):
-            getattr(box, f"set_margin_{m}")(8)
-        box.append(Gtk.Label(label=_("Idioma"), xalign=0, css_classes=["heading"]))
-        group = None
-        for code, name in i18n.LANGUAGES.items():
-            check = Gtk.CheckButton(label=name or _("Automático (sistema)"), group=group)
-            group = group or check
-            check.set_active(i18n.chosen() == code)
-            check.connect("toggled", lambda c, code=code: c.get_active() and self._set_language(pop, code))
-            box.append(check)
-        box.append(Gtk.Separator(margin_top=4, margin_bottom=4))
-        row = Gtk.Box(spacing=12)
-        row.append(Gtk.Label(label=_("Formas inteligentes"), xalign=0, hexpand=True))
-        sw = Gtk.Switch(active=i18n.read_config().get("shapes", True), valign=Gtk.Align.CENTER)
-        sw.connect("notify::active", lambda w, _p: i18n.write_config(shapes=w.get_active()))
-        row.append(sw)
-        box.append(row)
-        pop.set_child(box)
+        pop.set_child(settings.build(lambda code: self._set_language(pop, code)))
         mb.set_popover(pop)
 
     def _set_language(self, pop, code):

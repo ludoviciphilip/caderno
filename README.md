@@ -21,6 +21,13 @@ English, Portuguese and Spanish.
 - **Smart shapes:** draw a line, circle, ellipse, rectangle or triangle and keep the pen still on the page for
   a moment. The rough stroke turns into a clean shape: lines snap to 0°/45°/90°, near-round ellipses become circles,
   near-square rectangles become squares. You can turn this off in the home screen menu.
+- **Headings:** draw a `#` at the start of a line and keep the pen still for a moment. It turns into a purple
+  heading marker, and whatever you write on that line is the heading. Erase the marker to undo it.
+- **Index:** the list button at the top left opens a sidebar with every heading and smart shape in the notebook,
+  page by page, with a thumbnail. Click one to jump to it.
+- **Pen stroke:** in the ⋮ menu, choose how the line responds to the pen. *Follows pressure* is the default.
+  *Gentle pressure* keeps a little variation but steadies the line when you write with the pen tilted (tablets
+  read less pressure then). *Uniform* ignores pressure. It applies to new strokes only.
 - **Scratch out:** scribble back and forth over a word and it's erased, the way Journal does it. The
   scribble has to mostly cover the word, so ordinary writing next to it is never touched, and Ctrl+Z brings the word back.
 - **Images:** paste with Ctrl+V, drop a file on a page, or use `+` → image from file. Move and resize them with the

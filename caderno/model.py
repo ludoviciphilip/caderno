@@ -18,12 +18,13 @@ PAPERS = ("pautado", "quadriculado", "pontilhado", "liso")
 FORMAT_VERSION = 1
 
 
-@dataclass
+@dataclass(eq=False)
 class Stroke:
     kind: str                 # "pen" | "hl" (marca-texto)
     color: str                # "#rrggbb"
     width: float
     points: list              # [[x, y, pressão], ...]
+    shape: str | None = None  # forma inteligente que este traço virou ("círculo", ...)
     _bbox: tuple | None = field(default=None, repr=False, compare=False)
 
     def bbox(self):
@@ -35,12 +36,15 @@ class Stroke:
         return self._bbox
 
     def to_json(self):
-        return {"k": self.kind, "c": self.color, "w": round(self.width, 2),
-                "p": [[round(x, 1), round(y, 1), round(p, 3)] for x, y, p in self.points]}
+        d = {"k": self.kind, "c": self.color, "w": round(self.width, 2),
+             "p": [[round(x, 1), round(y, 1), round(p, 3)] for x, y, p in self.points]}
+        if self.shape:
+            d["s"] = self.shape
+        return d
 
     @classmethod
     def from_json(cls, d):
-        return cls(d["k"], d["c"], d["w"], [list(p) for p in d["p"]])
+        return cls(d["k"], d["c"], d["w"], [list(p) for p in d["p"]], d.get("s"))
 
     def hit(self, x, y, r):
         """O ponto (x, y) com raio r encosta neste traço?"""
@@ -128,7 +132,7 @@ def scribble_targets(page: "Page", scribble: Stroke) -> list:
     return out
 
 
-@dataclass
+@dataclass(eq=False)
 class ImageItem:
     file: str                 # nome do arquivo em imagens/
     x: float
@@ -148,27 +152,64 @@ class ImageItem:
         return self.x <= x <= self.x + self.w and self.y <= y <= self.y + self.h
 
 
-@dataclass
+@dataclass(eq=False)
+class Heading:
+    """Um título: a faixa de uma linha (y0..y1) a partir do marcador em x."""
+    x: float
+    y0: float
+    y1: float
+
+    MARK = 20.0   # largura do marcador "#"
+
+    def to_json(self):
+        return {"x": round(self.x, 1), "y0": round(self.y0, 1), "y1": round(self.y1, 1)}
+
+    @classmethod
+    def from_json(cls, d):
+        return cls(d["x"], d["y0"], d["y1"])
+
+    def marker_rect(self):
+        h = min(self.MARK, self.y1 - self.y0 - 6)
+        cy = (self.y0 + self.y1) / 2
+        return self.x, cy - h / 2, self.MARK, h
+
+    def title_strokes(self, page: "Page"):
+        """Os traços escritos na faixa do título, à direita do marcador."""
+        out = []
+        for st in page.strokes:
+            x0, y0, x1, y1 = st.bbox()
+            cy = (y0 + y1) / 2
+            if self.y0 - 6 <= cy <= self.y1 + 6 and x1 > self.x + self.MARK:
+                out.append(st)
+        return out
+
+
+@dataclass(eq=False)
 class Page:
     paper: str = "pautado"
     strokes: list = field(default_factory=list)
     images: list = field(default_factory=list)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:10])
+    headings: list = field(default_factory=list)
 
     def is_empty(self):
-        return not self.strokes and not self.images
+        return not self.strokes and not self.images and not self.headings
 
     def to_json(self):
-        return {"id": self.id, "paper": self.paper,
-                "strokes": [s.to_json() for s in self.strokes],
-                "images": [i.to_json() for i in self.images]}
+        d = {"id": self.id, "paper": self.paper,
+             "strokes": [s.to_json() for s in self.strokes],
+             "images": [i.to_json() for i in self.images]}
+        if self.headings:
+            d["headings"] = [h.to_json() for h in self.headings]
+        return d
 
     @classmethod
     def from_json(cls, d):
         return cls(d.get("paper", "pautado"),
                    [Stroke.from_json(s) for s in d.get("strokes", [])],
                    [ImageItem.from_json(i) for i in d.get("images", [])],
-                   d.get("id") or uuid.uuid4().hex[:10])
+                   d.get("id") or uuid.uuid4().hex[:10],
+                   [Heading.from_json(h) for h in d.get("headings", [])])
 
 
 class Journal:

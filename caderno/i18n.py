@@ -67,6 +67,22 @@ CATALOG = {
     "Não consegui abrir a imagem: {err}": ("Couldn't open the image: {err}", "No se pudo abrir la imagen: {err}"),
     "A área de transferência não tem imagem": ("The clipboard has no image", "El portapapeles no tiene imagen"),
     "Formas inteligentes": ("Smart shapes", "Formas inteligentes"),
+    "Índice": ("Index", "Índice"),
+    "Índice (títulos e formas)": ("Index (headings and shapes)", "Índice (títulos y formas)"),
+    "Folha {n}": ("Page {n}", "Hoja {n}"),
+    "Título": ("Heading", "Título"),
+    "Nenhum título ou forma ainda.\n\nPara criar um título, desenhe um # no começo da linha e segure a caneta parada.": (
+        "No headings or shapes yet.\n\nTo add a heading, draw a # at the start of a line and hold the pen still.",
+        "Aún no hay títulos ni formas.\n\nPara crear un título, dibuja un # al inicio de la línea y mantén el lápiz quieto."),
+    "linha": ("Line", "Línea"),
+    "círculo": ("Circle", "Círculo"),
+    "elipse": ("Ellipse", "Elipse"),
+    "retângulo": ("Rectangle", "Rectángulo"),
+    "triângulo": ("Triangle", "Triángulo"),
+    "Traço da caneta": ("Pen stroke", "Trazo del lápiz"),
+    "Pela pressão": ("Follows pressure", "Según la presión"),
+    "Pressão suave": ("Gentle pressure", "Presión suave"),
+    "Uniforme": ("Uniform", "Uniforme"),
     # barra
     "Inserir": ("Insert", "Insertar"),
     "Desfazer (Ctrl+Z)": ("Undo (Ctrl+Z)", "Deshacer (Ctrl+Z)"),
@@ -94,18 +110,27 @@ def _system_lang() -> str:
     return "en"
 
 
+_config = None
+
+
 def read_config() -> dict:
-    try:
-        return json.loads(CONFIG.read_text())
-    except (OSError, ValueError):
-        return {}
+    """Lida do disco uma vez; a caneta consulta isto a cada ponto."""
+    global _config
+    if _config is None:
+        try:
+            _config = json.loads(CONFIG.read_text())
+        except (OSError, ValueError):
+            _config = {}
+    return _config
 
 
 def write_config(**changes):
-    cfg = read_config()
+    global _config
+    cfg = dict(read_config())
     cfg.update(changes)
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps(cfg, indent=1))
+    _config = cfg
 
 
 def chosen() -> str:
