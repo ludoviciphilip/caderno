@@ -1,0 +1,141 @@
+"""Dados do caderno: páginas, traços e imagens, e como ficam no disco.
+
+Um caderno é uma pasta `<nome>.caderno/` com `caderno.json` e `imagens/`.
+As coordenadas são em unidades de página (A4 a 96 dpi: 794 x 1123).
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import time
+import uuid
+from dataclasses import dataclass, field
+from pathlib import Path
+
+PAGE_W, PAGE_H = 794.0, 1123.0
+PAPERS = ("pautado", "quadriculado", "pontilhado", "liso")
+FORMAT_VERSION = 1
+
+
+@dataclass
+class Stroke:
+    kind: str                 # "pen" | "hl" (marca-texto)
+    color: str                # "#rrggbb"
+    width: float
+    points: list              # [[x, y, pressão], ...]
+    _bbox: tuple | None = field(default=None, repr=False, compare=False)
+
+    def bbox(self):
+        if self._bbox is None:
+            xs = [p[0] for p in self.points]
+            ys = [p[1] for p in self.points]
+            m = self.width
+            self._bbox = (min(xs) - m, min(ys) - m, max(xs) + m, max(ys) + m)
+        return self._bbox
+
+    def to_json(self):
+        return {"k": self.kind, "c": self.color, "w": round(self.width, 2),
+                "p": [[round(x, 1), round(y, 1), round(p, 3)] for x, y, p in self.points]}
+
+    @classmethod
+    def from_json(cls, d):
+        return cls(d["k"], d["c"], d["w"], [list(p) for p in d["p"]])
+
+    def hit(self, x, y, r):
+        """O ponto (x, y) com raio r encosta neste traço?"""
+        x0, y0, x1, y1 = self.bbox()
+        if x < x0 - r or x > x1 + r or y < y0 - r or y > y1 + r:
+            return False
+        reach = r + self.width / 2
+        pts = self.points
+        if len(pts) == 1:
+            return math.hypot(x - pts[0][0], y - pts[0][1]) <= reach
+        for (ax, ay, _), (bx, by, _) in zip(pts, pts[1:]):
+            dx, dy = bx - ax, by - ay
+            l2 = dx * dx + dy * dy
+            t = 0.0 if l2 == 0 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / l2))
+            if math.hypot(x - (ax + t * dx), y - (ay + t * dy)) <= reach:
+                return True
+        return False
+
+
+@dataclass
+class ImageItem:
+    file: str                 # nome do arquivo em imagens/
+    x: float
+    y: float
+    w: float
+    h: float
+
+    def to_json(self):
+        return {"f": self.file, "x": round(self.x, 1), "y": round(self.y, 1),
+                "w": round(self.w, 1), "h": round(self.h, 1)}
+
+    @classmethod
+    def from_json(cls, d):
+        return cls(d["f"], d["x"], d["y"], d["w"], d["h"])
+
+    def contains(self, x, y):
+        return self.x <= x <= self.x + self.w and self.y <= y <= self.y + self.h
+
+
+@dataclass
+class Page:
+    paper: str = "pautado"
+    strokes: list = field(default_factory=list)
+    images: list = field(default_factory=list)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:10])
+
+    def is_empty(self):
+        return not self.strokes and not self.images
+
+    def to_json(self):
+        return {"id": self.id, "paper": self.paper,
+                "strokes": [s.to_json() for s in self.strokes],
+                "images": [i.to_json() for i in self.images]}
+
+    @classmethod
+    def from_json(cls, d):
+        return cls(d.get("paper", "pautado"),
+                   [Stroke.from_json(s) for s in d.get("strokes", [])],
+                   [ImageItem.from_json(i) for i in d.get("images", [])],
+                   d.get("id") or uuid.uuid4().hex[:10])
+
+
+class Journal:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.pages: list[Page] = []
+        self.meta = {"color": "#c47bdc", "paper": "pautado", "created": time.time()}
+
+    @property
+    def name(self):
+        return self.path.name.removesuffix(".caderno")
+
+    @property
+    def images_dir(self):
+        return self.path / "imagens"
+
+    @classmethod
+    def load(cls, path: Path) -> "Journal":
+        j = cls(path)
+        f = j.path / "caderno.json"
+        if f.exists():
+            d = json.loads(f.read_text())
+            j.meta.update(d.get("meta", {}))
+            j.pages = [Page.from_json(p) for p in d.get("pages", [])]
+        if not j.pages:
+            j.pages = [Page(j.meta.get("paper", "pautado"))]
+        return j
+
+    def save(self):
+        self.path.mkdir(parents=True, exist_ok=True)
+        d = {"version": FORMAT_VERSION, "meta": self.meta,
+             "pages": [p.to_json() for p in self.pages]}
+        tmp = self.path / "caderno.json.tmp"
+        tmp.write_text(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
+        os.replace(tmp, self.path / "caderno.json")
+
+    def new_page(self):
+        return Page(self.meta.get("paper", "pautado"))
