@@ -1,12 +1,30 @@
 # Caderno
 
-A handwriting notebook for Linux pen tablets, in the spirit of **Microsoft Journal**:
-folders and notebooks on the home screen, and inside a notebook just paper, a pen and a
-small floating toolbar. GTK4 + libadwaita, written in Python with Cairo. The interface is in
-English, Portuguese and Spanish.
+**Open-source handwriting notebook for Linux pen tablets** — a [Microsoft Journal](https://en.wikipedia.org/wiki/Microsoft_Journal)
+/ [OneNote](https://www.onenote.com/) alternative, in the spirit of Xournal++: folders and notebooks on the home
+screen, and inside a notebook just paper, a pen and a small floating toolbar. Pressure-sensitive strokes with
+[Wacom](https://www.wacom.com/), [XP-Pen](https://www.xp-pen.com/) and other Linux-supported tablets. Built with
+GTK4 and libadwaita for GNOME, written in Python with Cairo. The interface is in English, Portuguese and Spanish.
+
+*Microsoft Journal, OneNote and Wacom are trademarks of their respective owners; Caderno is not affiliated with
+or endorsed by Microsoft or Wacom.*
+
+[![License: MIT](https://img.shields.io/github/license/ludoviciphilip/caderno)](LICENSE)
+[![GTK4](https://img.shields.io/badge/GTK-4-blue)](https://www.gtk.org/)
+[![libadwaita](https://img.shields.io/badge/libadwaita-1.4%2B-blue)](https://gnome.pages.gitlab.gnome.org/libadwaita/)
+[![Platform: Linux](https://img.shields.io/badge/platform-Linux-informational)](#install)
+
+**[Features](#features) · [Install](#install) · [Usage](#language) · [Storage](#storage)**
 
 ![Home](docs/home.png)
 ![Notebook](docs/editor.png)
+
+## Why Caderno
+
+Most Linux note-taking apps for pen tablets are either general-purpose PDF annotators (Xournal++) or heavyweight
+cross-platform suites. Caderno focuses on one thing: a fast, distraction-free digital notebook that feels like
+writing on paper, inspired by the now Windows-only Microsoft Journal, built natively for GNOME with GTK4 and
+libadwaita.
 
 ## Features
 
@@ -25,7 +43,7 @@ English, Portuguese and Spanish.
   heading marker, and whatever you write on that line is the heading. Erase the marker to undo it.
 - **Index:** the list button at the top left opens a sidebar with every heading and smart shape in the notebook,
   page by page, with a thumbnail. Click one to jump to it.
-- **Pen stroke:** in the ⋮ menu, choose how the line responds to the pen. *Follows pressure* is the default.
+- **Pressure response:** in the ⋮ menu, choose how the line responds to the pen. *Follows pressure* is the default.
   *Gentle pressure* keeps a little variation but steadies the line when you write with the pen tilted (tablets
   read less pressure then). *Uniform* ignores pressure. It applies to new strokes only.
 - **Scratch out:** scribble back and forth over a word and it's erased, the way Journal does it. The
@@ -42,20 +60,6 @@ English, Portuguese and Spanish.
   - Ctrl+wheel, Ctrl+= and Ctrl+- zoom, Ctrl+0 fits the page.
   - Keys 1–6 pick a tool.
 - **Export to PDF** (vector) from the notebook menu. Everything saves automatically.
-
-## Language
-
-The home screen menu (⋮) switches between English, Português and Español, or **Automatic**, which follows the
-system locale. The choice is saved in `~/.config/caderno/config.json`; `CADERNO_LANG=en|pt|es` overrides it for a
-single run.
-
-## Storage
-
-Notebooks live in `~/Documents/Cadernos` (your XDG documents folder). Set `CADERNO_DIR` to use another place.
-
-- Folders are plain folders on disk.
-- Each notebook is a `Name.caderno/` folder with a small `caderno.json` (strokes as point lists) and an `imagens/`
-  folder, so backups and sync tools just work.
 
 ## Install
 
@@ -77,6 +81,9 @@ cd caderno
 Run it again after `git pull` to update. If you have `python-cairo` installed system-wide, you can also run the app
 directly with `python -m caderno`.
 
+Caderno currently ships from source only (no Flatpak or AUR package yet); the install script above is the supported
+path on any distro with GTK4 and libadwaita 1.4+, including Arch, Fedora and recent Ubuntu/Debian.
+
 ### Tips for Hyprland
 
 ```lua
@@ -87,6 +94,30 @@ hl.window_rule({ match = { class = "io.github.ludoviciphilip.Caderno" }, monitor
                  opaque = true, no_blur = true })
 ```
 
+## Language
+
+The home screen menu (⋮) switches between English, Português and Español, or **Automatic**, which follows the
+system locale. The choice is saved in `~/.config/caderno/config.json`; `CADERNO_LANG=en|pt|es` overrides it for a
+single run.
+
+## Storage
+
+Notebooks live in `~/Documents/Cadernos` (your XDG documents folder). Set `CADERNO_DIR` to use another place.
+
+- Folders are plain folders on disk.
+- Each notebook is a `Name.caderno/` folder with a small `caderno.json` (strokes as point lists) and an `imagens/`
+  folder, so backups and sync tools just work.
+
+## Alternatives
+
+If you're comparing Linux pen-tablet note apps:
+
+- **[Xournal++](https://xournalpp.github.io/)** — mature, feature-rich PDF annotator and notebook app; a good fit
+  if you need PDF annotation, LaTeX and plugin support. Caderno is simpler and focused on a Journal-like
+  folders-then-paper flow.
+- **Microsoft Journal / OneNote** — Windows-only (and cloud-first for OneNote); Caderno is a native Linux
+  alternative with local-only storage.
+
 ## Status
 
 Young and personal, but usable daily. Ideas for later:
@@ -96,7 +127,7 @@ Young and personal, but usable daily. Ideas for later:
 - lasso selection to move handwriting
 - a partial eraser
 
-Issues and pull requests are welcome.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
